@@ -1,0 +1,260 @@
+     
+      
+      
+from telebot import TeleBot, types      
+from config import *      
+from database import *      
+      
+# Create database tables      
+create_tables()      
+      
+# Create bot      
+bot = TeleBot(TOKEN)      
+      
+# ==========================      
+# MAIN MENU      
+# ==========================      
+      
+def main_menu():      
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)      
+      
+    markup.row("📋 Tasks", "💰 Balance")      
+    markup.row("📤 Submit Proof", "🏦 Withdraw")      
+    markup.row("👥 Referral", "ℹ️ Help")      
+      
+    return markup      
+      
+# ==========================      
+# /START      
+# ==========================      
+      
+@bot.message_handler(commands=["start"])      
+def start(message):      
+      
+    add_user(      
+        message.from_user.id,      
+        message.from_user.username,      
+        message.from_user.first_name      
+    )      
+      
+    bot.send_message(      
+        message.chat.id,      
+        f"""      
+👋 Welcome to {BOT_NAME}      
+      
+Complete tasks and earn money.      
+      
+Choose an option below.      
+        """,      
+        reply_markup=main_menu()      
+    )      
+      
+# ==========================      
+# TASKS      
+# ==========================      
+      
+@bot.message_handler(func=lambda m: m.text == "📋 Tasks")      
+def tasks(message):      
+      
+    bot.send_message(      
+        message.chat.id,      
+        f"""      
+📋 {TASK_NAME}      
+      
+🎯 FOR NEW USERS ONLY      
+      
+1️⃣ Register using my referral link      
+      
+{REFERRAL_LINK}      
+      
+2️⃣ Reach Level 20      
+      
+3️⃣ Withdraw your first ₦150      
+      
+4️⃣ Tap 📤 Submit Proof      
+      
+🎁 Reward: ₦{TASK_REWARD}      
+        """      
+    )      
+      
+# ==========================      
+# BALANCE      
+# ==========================      
+      
+@bot.message_handler(func=lambda m: m.text == "💰 Balance")      
+def balance(message):      
+      
+    bal = get_balance(message.from_user.id)      
+      
+    bot.send_message(      
+        message.chat.id,      
+        f"💰 Your Balance: ₦{bal}"      
+    )      
+      
+# ==========================      
+# REFERRAL      
+# ==========================      
+      
+@bot.message_handler(func=lambda m: m.text == "👥 Referral")      
+def referral(message):      
+      
+    bot.send_message(      
+        message.chat.id,      
+        """      
+👥 Referral Program      
+      
+Invite your friends to join Verified Task Hub.      
+      
+Referral tracking will be enabled soon.      
+        """      
+    )      
+      
+# ==========================      
+# HELP      
+# ==========================      
+      
+@bot.message_handler(func=lambda m: m.text == "ℹ️ Help")      
+def help_button(message):      
+      
+    bot.send_message(      
+        message.chat.id,      
+        f"""      
+Need help?      
+      
+Contact:      
+      
+{SUPPORT}      
+        """      
+    )      
+      
+# ==========================      
+# SUBMIT PROOF      
+# ==========================      
+      
+waiting_for_proof = {}      
+      
+@bot.message_handler(func=lambda m: m.text == "📤 Submit Proof")      
+def submit_proof(message):      
+      
+    waiting_for_proof[message.from_user.id] = True      
+      
+    bot.send_message(      
+        message.chat.id,      
+        "📸 Please send your proof screenshot now."      
+    )      
+      
+      
+@bot.message_handler(content_types=["photo"])      
+def receive_photo(message):      
+      
+    if message.from_user.id not in waiting_for_proof:      
+        return      
+      
+    del waiting_for_proof[message.from_user.id]      
+      
+    photo = message.photo[-1].file_id      
+      
+    caption = f"""      
+📥 NEW TASK SUBMISSION      
+      
+👤 Name: {message.from_user.first_name}      
+      
+🔗 Username: @{message.from_user.username}      
+      
+🆔 User ID: {message.from_user.id}      
+      
+Status: Pending Approval      
+"""      
+      
+    markup = types.InlineKeyboardMarkup()      
+      
+    approve = types.InlineKeyboardButton(      
+        "✅ Approve",      
+        callback_data=f"approve:{message.from_user.id}"      
+    )      
+      
+    reject = types.InlineKeyboardButton(      
+        "❌ Reject",      
+        callback_data=f"reject:{message.from_user.id}"      
+    )      
+      
+    markup.row(approve, reject)      
+      
+    bot.send_photo(      
+        ADMIN_ID,      
+        photo,      
+        caption=caption,      
+        reply_markup=markup      
+    )      
+      
+    bot.send_message(      
+        message.chat.id,      
+        "✅ Screenshot received successfully.\n\nPlease wait for admin approval."      
+    )      
+    
+# ==========================    
+# ADMIN APPROVAL    
+# ==========================    
+    
+@bot.callback_query_handler(func=lambda call: True)    
+def callback_handler(call):    
+    
+    if call.from_user.id != ADMIN_ID:    
+        return    
+    
+    if call.data.startswith("approve:"):    
+    
+        user_id = int(call.data.split(":")[1])    
+    
+        update_balance(user_id, TASK_REWARD)    
+    
+        bot.send_message(    
+            user_id,    
+            f"🎉 Congratulations!\n\nYour proof has been approved.\n\n₦{TASK_REWARD} has been added to your balance."    
+        )    
+    
+        bot.answer_callback_query(call.id, "Approved")    
+    
+    elif call.data.startswith("reject:"):    
+    
+        user_id = int(call.data.split(":")[1])    
+    
+        bot.send_message(    
+            user_id,    
+            "❌ Sorry, your proof was rejected.\n\nPlease submit a clearer screenshot."    
+        )    
+    
+        bot.answer_callback_query(call.id, "Rejected")    
+    
+    
+# ==========================    
+# WITHDRAW    
+# ==========================    
+    
+@bot.message_handler(func=lambda m: m.text == "🏦 Withdraw")    
+def withdraw(message):    
+    
+    balance = get_balance(message.from_user.id)    
+    
+    if balance < 200:    
+    
+        bot.send_message(    
+            message.chat.id,    
+            "❌ Minimum withdrawal is ₦200."    
+        )    
+    
+        return    
+    
+    bot.send_message(    
+        message.chat.id,    
+        "Withdrawal request received.\n\nAdmin will contact you shortly."    
+    )    
+    
+    
+# ==========================    
+# START BOT    
+# ==========================    
+    
+print("Verified Task Hub Bot Started...")    
+    
+bot.infinity_polling(skip_pending=True)
